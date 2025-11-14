@@ -7,7 +7,7 @@ from os.path import join
 from argparse import ArgumentParser
 
 class GenBankFetcher:
-	def __init__(self, taxid, base_url, email, output_dir, batch_size, sleep_time, base_dir, update_file):
+	def __init__(self, taxid, base_url, email, output_dir, batch_size, sleep_time, base_dir, update_file, test_run=False):
 		self.taxid = taxid
 		self.base_url = base_url
 		self.email = email
@@ -17,6 +17,7 @@ class GenBankFetcher:
 		self.sleep_time = sleep_time
 		self.base_dir = base_dir
 		self.update_file = update_file
+		self.test_run = test_run
 
 	def get_record_count(self):
 		search_url = f"{self.base_url}esearch.fcgi?db=nucleotide&term=txid{self.taxid}[Organism:exp]&retmode=json&email={self.email}"

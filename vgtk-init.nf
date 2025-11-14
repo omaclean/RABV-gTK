@@ -56,6 +56,7 @@ if (unexpectedParams) {
     error(errorMsg) // Stop the pipeline
 }
 
+
 process FETCH_GENBANK{
     input:
         val (TAX_ID)
@@ -64,12 +65,13 @@ process FETCH_GENBANK{
     shell:
     '''
     extra=""
-    if( [ !{params.test} -eq 1 ] )
+    if( [ "!{params.test}" -eq "1" ] )
     then
         extra="--test_run"
     fi
     python !{scripts_dir}/GenBankFetcher.py --taxid !{TAX_ID} -b 50 \
-            --update tmp/GenBank-matrix/gB_matrix_raw.tsv ${extra} -e !{params.email}
+             ${extra} -e !{params.email}
+    #--update tmp/GenBank-matrix/gB_matrix_raw.tsv is gonna be problematic for this!
     #what's update doing with a tmp dir?
 
     '''
@@ -91,7 +93,7 @@ process DOWNLOAD_GFF{
 //python "${scripts_dir}/GenBankParser.py" -r "generic/rabv/ref_list.txt"
 
 process GENBANK_PARSER{
-    publish_dir "${params.publish_dir}"
+    publishDir "${params.publish_dir}"
     input:
         val ref_list_path
         path gen_bank_XML
@@ -105,14 +107,14 @@ process GENBANK_PARSER{
 }
 process SKIP_FILL{
     input:
-         
+        path gen_bank_XML
     output:
          
     when:
         params.skip_fill.toBoolean()
     shell:
     '''
-    echo "Skipping fill step as per user request."
+    
     '''
 }
 
