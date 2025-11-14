@@ -93,17 +93,17 @@ process DOWNLOAD_GFF{
 process GENBANK_PARSER{
     publish_dir "${params.publish_dir}"
     input:
-         ref_list_path
-         gen_bank_XML
+        val ref_list_path
+        path gen_bank_XML
     output:
 
     shell:
     '''
-        python !{scripts_dir}/GenBankParser.py -r ref_list_path -d GenBank-XML
+        python !{scripts_dir}/GenBankParser.py -r !{ref_list_path} -d !{gen_bank_XML}
         python !{scripts_dir}/ValidateMatrix.py
     '''
 }
-process skip_fill{
+process SKIP_FILL{
     input:
          
     output:
