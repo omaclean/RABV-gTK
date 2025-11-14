@@ -89,7 +89,12 @@ class GenBankFetcher:
 	def fetch_genbank_data(self, ids):
 		# usa un batch interno distinto sólo para efetch
 		batch_n = self.efetch_batch_size
-		for i in range(0, len(ids), batch_n):
+		if self.test_run:
+			max_ids=20
+			batch_n=10
+		else:
+			max_ids=len(ids)
+		for i in range(0, max_ids, batch_n):
 			chunk = ids[i:i+batch_n]
 			ids_str = ",".join(chunk)
 			url = (
@@ -157,6 +162,7 @@ if __name__ == "__main__":
 	parser.add_argument('-e', '--email', help='Email ID', default='your_email@example.com')
 	parser.add_argument('-s', '--sleep_time', help='Delay after each set of information fetch', default=2, type=int)
 	parser.add_argument('-d', '--base_dir', help='Directory where all the XML files are stored', default='GenBank-XML')
+	parser.add_argument("--test_run", action="store_true", help="Run a test fetching only a few records for quick testing")
 	args = parser.parse_args()
 
 	fetcher = GenBankFetcher(
@@ -167,7 +173,8 @@ if __name__ == "__main__":
 		batch_size=args.batch_size,
 		sleep_time=args.sleep_time,
 		base_dir = args.base_dir,
-		update_file = args.update
+		update_file = args.update,
+		test_run = args.test_run
 	)
 
 	if args.update:

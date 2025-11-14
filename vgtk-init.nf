@@ -6,6 +6,7 @@ params.master_acc="NC_001542"
 params.is_segmented="N"
 params.skip_fill=true
 params.publish_dir="results"
+params.email="your_email@example.com"
 
 scripts_dir="$projectDir/scripts"
 
@@ -54,15 +55,30 @@ if (unexpectedParams) {
     error(errorMsg) // Stop the pipeline
 }
 
-process FETCH_gen_bank{
+process FETCH_GENBANK{
     input:
         val (TAX_ID)
     output:
-        tuple val(SRA_ID),path("${SRA_ID}_clean_R1.fastq.gz"),path("${SRA_ID}_clean_R2.fastq.gz"),env(R2_real)
+         
     shell:
     '''
+    extra=""
+    if(!{params.test.toBoolean()}){
+        extra="--test_run"
+    }
+    python "${scripts_dir}/GenBankFetcher.py" --taxid "!{TAX_ID}" -b 50 \
+            --update tmp/GenBank-matrix/gB_matrix_raw.tsv ${extra} -e "!{params.email}"
+    '''
+}
 
-    python "${scripts_dir}/GenBankFetcher.py" --taxid "$TAX_ID" -b 50 \
-            --update tmp/GenBank-matrix/gB_matrix_raw.tsv
+procses DOWNLOAD_GFF{
+    input:
+        val master_acc
+    output:
+         
+    shell:
+    '''
+    python "${scripts_dir}/DownloadGFF.py" --accession_ids "!{master_acc}"
+
     '''
 }
