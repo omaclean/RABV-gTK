@@ -7,8 +7,9 @@ params.is_segmented="N"
 params.skip_fill=true
 params.publish_dir="results"
 params.email="your_email@example.com"
+params.ref_list="${projectDir}/generic/rabv/ref_list.txt"
 
-scripts_dir="$projectDir/scripts"
+scripts_dir="${projectDir}/scripts"
 
 params.test=0
 
@@ -17,7 +18,7 @@ params.test=0
 // 1. List your script's explicitly defined parameters (keep this in sync!)
 def scriptDefinedParams = [
     'tax_id', 'db_name', 'master_acc', 'is_segmented', 'skip_fill', 'test',
-    "scripts_dir", "publish_dir"
+    "scripts_dir", "publish_dir", "email", "ref_list"
     // Add all parameter names defined above
 ]
 
@@ -59,26 +60,70 @@ process FETCH_GENBANK{
     input:
         val (TAX_ID)
     output:
-         
+        path 'GenBank-XML', type: 'dir'
     shell:
     '''
     extra=""
-    if(!{params.test.toBoolean()}){
+    if( [ !{params.test} -eq 1 ] )
+    then
         extra="--test_run"
-    }
-    python "${scripts_dir}/GenBankFetcher.py" --taxid "!{TAX_ID}" -b 50 \
-            --update tmp/GenBank-matrix/gB_matrix_raw.tsv ${extra} -e "!{params.email}"
+    fi
+    python !{scripts_dir}/GenBankFetcher.py --taxid !{TAX_ID} -b 50 \
+            --update tmp/GenBank-matrix/gB_matrix_raw.tsv ${extra} -e !{params.email}
+    #what's update doing with a tmp dir?
+
     '''
 }
 
-procses DOWNLOAD_GFF{
+process DOWNLOAD_GFF{
     input:
         val master_acc
     output:
-         
+         GFF_FILE = file("*.gff"), emit: gff_file
     shell:
     '''
-    python "${scripts_dir}/DownloadGFF.py" --accession_ids "!{master_acc}"
+    python "!{scripts_dir}/DownloadGFF.py" --accession_ids "!{master_acc}"
 
     '''
+}
+
+//python GenBankParser.py
+//python "${scripts_dir}/GenBankParser.py" -r "generic/rabv/ref_list.txt"
+
+process GENBANK_PARSER{
+    publish_dir "${params.publish_dir}"
+    input:
+         ref_list_path
+         gen_bank_XML
+    output:
+
+    shell:
+    '''
+        python !{scripts_dir}/GenBankParser.py -r ref_list_path -d GenBank-XML
+        python !{scripts_dir}/ValidateMatrix.py
+    '''
+}
+process skip_fill{
+    input:
+         
+    output:
+         
+    when:
+        params.skip_fill.toBoolean()
+    shell:
+    '''
+    echo "Skipping fill step as per user request."
+    '''
+}
+
+
+workflow {
+    FETCH_GENBANK(params.tax_id)
+    DOWNLOAD_GFF(params.master_acc)
+    GENBANK_PARSER(ref_list_path: params.ref_list, gen_bank_XML: FETCH_GENBANK.out)
+    if(skip_fill){
+        data=SKIP_FILL(FETCH_GENBANK.out)
+    }else{
+        data=FETCH_GENBANK()
+    }
 }
