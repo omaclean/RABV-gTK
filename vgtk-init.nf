@@ -4,12 +4,17 @@ params.tax_id="11292"
 params.db_name="rabv-jul0425"
 params.master_acc="NC_001542"
 params.is_segmented="N"
-params.skip_fill=true
+params.extra_info_fill=false
 params.publish_dir="results"
 params.email="your_email@example.com"
 params.ref_list="${projectDir}/generic/rabv/ref_list.txt"
 
+
 scripts_dir="${projectDir}/scripts"
+
+
+params.bulk_fillup_table="${projectDir}/generic/rabv/bulk_fillup_table.tsv"
+
 
 params.test=0
 
@@ -17,8 +22,8 @@ params.test=0
 
 // 1. List your script's explicitly defined parameters (keep this in sync!)
 def scriptDefinedParams = [
-    'tax_id', 'db_name', 'master_acc', 'is_segmented', 'skip_fill', 'test',
-    "scripts_dir", "publish_dir", "email", "ref_list"
+    'tax_id', 'db_name', 'master_acc', 'is_segmented', 'extra_info_fill', 'test',
+    "scripts_dir", "publish_dir", "email", "ref_list", "bulk_fillup_table"
     // Add all parameter names defined above
 ]
 
@@ -58,10 +63,11 @@ if (unexpectedParams) {
 
 
 process FETCH_GENBANK{
+    publishDir "${params.publish_dir}"
     input:
         val (TAX_ID)
     output:
-        path 'GenBank-XML', type: 'dir'
+        path 'GenBank-XML', type: 'dir', emit: gen_bank_XML
     shell:
     '''
     extra=""
@@ -70,7 +76,7 @@ process FETCH_GENBANK{
         extra="--test_run"
     fi
     python !{scripts_dir}/GenBankFetcher.py --taxid !{TAX_ID} -b 50 \
-             ${extra} -e !{params.email}
+             ${extra} -e !{params.email} -o .
     #--update tmp/GenBank-matrix/gB_matrix_raw.tsv is gonna be problematic for this!
     #what's update doing with a tmp dir?
 
@@ -81,10 +87,10 @@ process DOWNLOAD_GFF{
     input:
         val master_acc
     output:
-         GFF_FILE = file("*.gff"), emit: gff_file
+         path "*.gff3"
     shell:
     '''
-    python "!{scripts_dir}/DownloadGFF.py" --accession_ids "!{master_acc}"
+    python "!{scripts_dir}/DownloadGFF.py" --accession_ids "!{master_acc}" -o . -b .
 
     '''
 }
@@ -95,37 +101,113 @@ process DOWNLOAD_GFF{
 process GENBANK_PARSER{
     publishDir "${params.publish_dir}"
     input:
-        val ref_list_path
+        path ref_list_path
         path gen_bank_XML
     output:
-
+        path "gB_matrix_validated.tsv" , emit: gb_matrix
+        path "sequences.fa", emit: sequences_out
     shell:
     '''
-        python !{scripts_dir}/GenBankParser.py -r !{ref_list_path} -d !{gen_bank_XML}
-        python !{scripts_dir}/ValidateMatrix.py
+        python !{scripts_dir}/GenBankParser.py -r !{ref_list_path} -d !{gen_bank_XML} -o . -b .
+        python !{scripts_dir}/ValidateMatrix.py -o . -a !{projectDir}/assets -b . \
+        -g gB_matrix_raw.tsv \
+        -m !{projectDir}/generic/rabv/host_mapping.tsv -n !{projectDir}/generic/rabv/country_mapping.tsv  \
+        -c !{projectDir}/assets/m49_country.csv
+        # I don't like hardcoding these bits in if this it to generalise beyond rabv
     '''
 }
-process SKIP_FILL{
+process ADD_MISSING_DATA{
     input:
-        path gen_bank_XML
+        path gen_bank_table
     output:
-         
+        path "*.tsv", emit: tsvs_out
     when:
-        params.skip_fill.toBoolean()
+        params.extra_info_fill.toBoolean()
     shell:
     '''
-    
+        python !{scripts_dir}/AddMissingData.py -b !{gen_bank_table} \
+         -t !{params.bulk_fillup_table} -o . -d .
     '''
 }
 
+
+process FILTER_AND_EXTRACT{
+    input:
+        path table_in
+        path seqs_in
+    output:
+        path "query_seq.fa", emit: query_seqs_out
+        path "ref_seq.fa", emit: ref_seqs_out
+    shell:
+    '''
+
+        python !{scripts_dir}/FilterAndExtractSequences.py -b . -o . -r !{params.ref_list} \
+         -v !{params.is_segmented} -g !{table_in} -sf !{seqs_in}
+    '''
+}
+
+
+
+process BLAST_ALIGNMENT{
+    input:
+        path query_seqs
+        path ref_seqs
+        path gb_matrix
+    output:
+        path "query_tophits.tsv"
+        path "grouped_fasta", type: 'dir'
+        path "ref_seqs", type: 'dir'
+        
+    shell:
+    '''
+        if [ "!{params.is_segmented}" = "Y" ]; then
+            python "!{scripts_dir}/BlastAlignment.py" -s Y -f "!{params.ref_list}" -q !{query_seqs} -r !{ref_seqs} \
+             -t . -b . -m !{params.master_acc}  -g !{gb_matrix}
+        else
+            python "!{scripts_dir}/BlastAlignment.py" -f "!{params.ref_list}" -q !{query_seqs} -r !{ref_seqs} \
+             -b . -t . -m !{params.master_acc} -g !{gb_matrix}
+        fi
+    '''
+}
+//workdir files:
+//DB                       grouped_fasta  merged_fasta  query_tophits.tsv       ref_seq.fa  sorted_all
+//gB_matrix_validated.tsv  master_seq     query_seq.fa  query_uniq_tophits.tsv  ref_seqs    sorted_fasta
+
+
+
+//python "${scripts_dir}/NextalignAlignment.py" -m $master_acc #-gff "tmp/Gff/NC_001542.gff3"
+process NEXTALIGN_ALIGNMENT{
+    input:
+        path gff_file
+        path query_seqs
+    output:
+        path "Alignment_consensus.fa"
+    shell:
+    '''
+        python !{scripts_dir}/NextalignAlignment.py --reference !{params.master_acc} --gff !{gff_file} --sequences !{query_seqs} --output-fasta Alignment_consensus.fa
+    '''
+}
 
 workflow {
+    // check some params are in right form
+    // params.is_segmented should be either Y or N
+    if( !(params.is_segmented in ['Y','N']) ){
+        error("ERROR: params.is_segmented should be either Y or N")
+    }
     FETCH_GENBANK(params.tax_id)
     DOWNLOAD_GFF(params.master_acc)
-    GENBANK_PARSER(ref_list_path: params.ref_list, gen_bank_XML: FETCH_GENBANK.out)
-    if(skip_fill){
-        data=SKIP_FILL(FETCH_GENBANK.out)
+    GENBANK_PARSER(params.ref_list, FETCH_GENBANK.out.gen_bank_XML)
+    if(params.extra_info_fill){
+        data=ADD_MISSING_DATA(GENBANK_PARSER.out.gb_matrix)
     }else{
-        data=FETCH_GENBANK()
+        data=GENBANK_PARSER.out.gb_matrix
     }
+    FILTER_AND_EXTRACT(data,GENBANK_PARSER.out.sequences_out)
+
+    BLAST_ALIGNMENT(FILTER_AND_EXTRACT.out.query_seqs_out,
+                    FILTER_AND_EXTRACT.out.ref_seqs_out,
+                    data)
 }
+
+
+// if you wanted it to do an update run, would have to swap "."s for all the directories for a pre-made one
