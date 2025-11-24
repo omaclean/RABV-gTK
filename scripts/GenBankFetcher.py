@@ -1,5 +1,6 @@
 import os
 import csv
+from turtle import pd
 import requests
 import time
 from time import sleep
@@ -7,7 +8,7 @@ from os.path import join
 from argparse import ArgumentParser
 
 class GenBankFetcher:
-	def __init__(self, taxid, base_url, email, output_dir, batch_size, sleep_time, base_dir, update_file, test_run=False):
+	def __init__(self, taxid, base_url, email, output_dir, batch_size, sleep_time, base_dir, update_file, test_run=False, ref_list=None):
 		self.taxid = taxid
 		self.base_url = base_url
 		self.email = email
@@ -18,6 +19,7 @@ class GenBankFetcher:
 		self.base_dir = base_dir
 		self.update_file = update_file
 		self.test_run = test_run
+		self.ref_list = ref_list
 
 	def get_record_count(self):
 		search_url = f"{self.base_url}esearch.fcgi?db=nucleotide&term=txid{self.taxid}[Organism:exp]&retmode=json&email={self.email}"
@@ -91,10 +93,19 @@ class GenBankFetcher:
 		# usa un batch interno distinto sólo para efetch
 		batch_n = self.efetch_batch_size
 		if self.test_run:
-			max_ids=20
+			ids=ids[:20]
+			# read as tsv self.ref_list add to ids, refs are first column
+			ref_list = []
+			with open(self.ref_list, 'r') as f:
+				for line in f:
+					ref_list.append(line.strip().split('\t')[0])
+			ids.extend(ref_list)
+					
+   
+
 			batch_n=10
-		else:
-			max_ids=len(ids)
+	
+		max_ids=len(ids)
 		for i in range(0, max_ids, batch_n):
 			chunk = ids[i:i+batch_n]
 			ids_str = ",".join(chunk)
@@ -164,6 +175,7 @@ if __name__ == "__main__":
 	parser.add_argument('-s', '--sleep_time', help='Delay after each set of information fetch', default=2, type=int)
 	parser.add_argument('-d', '--base_dir', help='Directory where all the XML files are stored', default='GenBank-XML')
 	parser.add_argument("--test_run", action="store_true", help="Run a test fetching only a few records for quick testing")
+	parser.add_argument('--ref_list', help='Reference accession list for test run', default='generic/rabv/ref_list.txt')
 	args = parser.parse_args()
 
 	fetcher = GenBankFetcher(
@@ -175,7 +187,8 @@ if __name__ == "__main__":
 		sleep_time=args.sleep_time,
 		base_dir = args.base_dir,
 		update_file = args.update,
-		test_run = args.test_run
+		test_run = args.test_run,
+		ref_list = args.ref_list
 	)
 
 	if args.update:

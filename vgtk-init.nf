@@ -73,7 +73,7 @@ process FETCH_GENBANK{
     extra=""
     if( [ "!{params.test}" -eq "1" ] )
     then
-        extra="--test_run"
+        extra="--test_run --ref_list !{params.ref_list}"
     fi
     python !{scripts_dir}/GenBankFetcher.py --taxid !{TAX_ID} -b 50 \
              ${extra} -e !{params.email} -o .
@@ -126,7 +126,7 @@ process ADD_MISSING_DATA{
     shell:
     '''
         python !{scripts_dir}/AddMissingData.py -b !{gen_bank_table} \
-         -t !{params.bulk_fillup_table} -o . -d .
+         -t !{params.bulk_fillup_table}  -d . -f !{params.bulk_fillup_table}
     '''
 }
 
@@ -154,9 +154,11 @@ process BLAST_ALIGNMENT{
         path ref_seqs
         path gb_matrix
     output:
-        path "query_tophits.tsv"
-        path "grouped_fasta", type: 'dir'
-        path "ref_seqs", type: 'dir'
+        path "query_tophits.tsv",type: "file", emit: query_tophits
+        path "grouped_fasta", type: 'dir', emit: grouped_fasta
+        path "ref_seqs", type: 'dir', emit: ref_seqs_dir
+        path "ref_seq.fa", type: 'file', emit: ref_seqs_fasta
+        path "master_seq", type: 'dir', emit: master_seq_dir
         
     shell:
     '''
@@ -167,6 +169,7 @@ process BLAST_ALIGNMENT{
             python "!{scripts_dir}/BlastAlignment.py" -f "!{params.ref_list}" -q !{query_seqs} -r !{ref_seqs} \
              -b . -t . -m !{params.master_acc} -g !{gb_matrix}
         fi
+        ls ref_seqs | grep *
     '''
 }
 //workdir files:
@@ -178,17 +181,23 @@ process BLAST_ALIGNMENT{
 //python "${scripts_dir}/NextalignAlignment.py" -m $master_acc #-gff "tmp/Gff/NC_001542.gff3"
 process NEXTALIGN_ALIGNMENT{
     input:
-        path gff_file
-        path query_seqs
+        path genbank_matrix
+        path grouped_fasta_dir
+        path ref_seqs
+        path ref_seqs_fasta
+        path master_seq_dir
     output:
-        path "Alignment_consensus.fa"
+        path "Nextalign", type: 'dir'
     shell:
     '''
-        python !{scripts_dir}/NextalignAlignment.py --reference !{params.master_acc} --gff !{gff_file} --sequences !{query_seqs} --output-fasta Alignment_consensus.fa
+        python !{scripts_dir}/NextalignAlignment.py  -r !{ref_seqs}  \
+         -q !{grouped_fasta_dir} -g !{genbank_matrix} -t . \
+         -f !{ref_seqs_fasta} -m !{params.master_acc} -ms !{master_seq_dir} 
     '''
 }
 
 workflow {
+
     // check some params are in right form
     // params.is_segmented should be either Y or N
     if( !(params.is_segmented in ['Y','N']) ){
@@ -202,11 +211,17 @@ workflow {
     }else{
         data=GENBANK_PARSER.out.gb_matrix
     }
-    FILTER_AND_EXTRACT(data,GENBANK_PARSER.out.sequences_out)
+    FILTER_AND_EXTRACT(data, 
+                        GENBANK_PARSER.out.sequences_out)
 
     BLAST_ALIGNMENT(FILTER_AND_EXTRACT.out.query_seqs_out,
                     FILTER_AND_EXTRACT.out.ref_seqs_out,
                     data)
+    NEXTALIGN_ALIGNMENT(data,
+                        BLAST_ALIGNMENT.out.grouped_fasta,
+                        BLAST_ALIGNMENT.out.ref_seqs_dir,
+                        FILTER_AND_EXTRACT.out.ref_seqs_out,
+                        BLAST_ALIGNMENT.out.master_seq_dir)
 }
 
 

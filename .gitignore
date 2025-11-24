@@ -4,3 +4,4 @@ work/
 .nextflow*
 variant_matrix.csv
 Alignment_consensus.fa
+scripts/__pycache__
