@@ -1,21 +1,4 @@
 
-
-params.tax_id="11292"
-params.db_name="rabv-jul0425"
-params.master_acc="NC_001542"
-params.is_segmented="N"
-params.extra_info_fill=false
-params.publish_dir="results"
-params.email="your_email@example.com"
-params.ref_list="${projectDir}/generic/rabv/ref_list.txt"
-
-
-scripts_dir="${projectDir}/scripts"
-
-
-params.bulk_fillup_table="${projectDir}/generic/rabv/bulk_fillup_table.tsv"
-
-
 params.test=0
 
 
@@ -61,7 +44,22 @@ if (unexpectedParams) {
     error(errorMsg) // Stop the pipeline
 }
 
-
+process TEST_DEPENDENCIES{
+    output:
+        path "dependency_test.txt"
+    shell:
+    '''
+    python --version > dependency_test.txt
+    pip show biopython >> dependency_test.txt
+    pip show pandas >> dependency_test.txt
+    pip show numpy >> dependency_test.txt
+    pip show openpyxl >> dependency_test.txt
+    pip show requests >> dependency_test.txt
+    pip show python-dateutil >> dependency_test.txt
+    nextalign --version >> dependency_test.txt
+    
+    '''
+}
 process FETCH_GENBANK{
     publishDir "${params.publish_dir}"
     input:
@@ -155,6 +153,7 @@ process BLAST_ALIGNMENT{
         path gb_matrix
     output:
         path "query_tophits.tsv",type: "file", emit: query_tophits
+        path "query_uniq_tophits.tsv", type: "file", emit: query_uniq_tophits
         path "grouped_fasta", type: 'dir', emit: grouped_fasta
         path "ref_seqs", type: 'dir', emit: ref_seqs_dir
         path "ref_seq.fa", type: 'file', emit: ref_seqs_fasta
@@ -169,7 +168,6 @@ process BLAST_ALIGNMENT{
             python "!{scripts_dir}/BlastAlignment.py" -f "!{params.ref_list}" -q !{query_seqs} -r !{ref_seqs} \
              -b . -t . -m !{params.master_acc} -g !{gb_matrix}
         fi
-        ls master_seq | grep "fasta"
     '''
 }
 //workdir files:
@@ -202,17 +200,95 @@ process PAD_ALIGNMENT{
     input:
         path nextalign_dir 
     output:
-        path "*.fasta"
+        path "*_merged_MSA.fasta", emit: merged_msa
+        path "*_aligned_padded.fasta", emit: padded_fastas, optional: true
     shell:
     '''
         python !{scripts_dir}/PadAlignment.py  -r !{nextalign_dir}/reference_aln/!{params.master_acc}/!{params.master_acc}.aligned.fasta \
         -o . -d . -i !{nextalign_dir}/query_aln --keep_intermediate_files 
     '''
 }
+
+process CALC_ALIGNMENT_CORD {
+    input:
+        path padded_fasta
+        path gff_file
+        path blast_hits
+    output:
+        path "features.tsv", emit: features
+    shell:
+    '''
+    # CalcAlignmentCord expects a directory for -i
+    mkdir padded_alignments
+    cp !{padded_fasta} padded_alignments/
+    
+    python !{scripts_dir}/CalcAlignmentCord.py -i padded_alignments \
+    -m !{params.master_acc} -g !{gff_file} -bh !{blast_hits} \
+    -b . -d . -o features.tsv
+    '''
+}
+
+process SOFTWARE_VERSION {
+    output:
+        path "Software_info/software_info.tsv", emit: software_info
+    shell:
+    '''
+    python !{scripts_dir}/SoftwareVersion.py -d . -o Software_info \
+     -f software_info.tsv
+    '''
+}
+
+process GENERATE_TABLES {
+    input:
+        path gb_matrix
+        path blast_hits
+        path padded_aln
+        path nextalign_dir
+    output:
+        path "Tables/sequence_alignment.tsv", emit: sequence_alignment
+        path "Tables/insertions.tsv", emit: insertions
+        path "Tables/host_taxa.tsv", emit: host_taxa
+        path "Tables", emit: tables_dir
+    shell:
+    '''
+    python !{scripts_dir}/GenerateTables.py -g !{gb_matrix} \
+    -bh !{blast_hits} -p !{padded_aln} -n !{nextalign_dir} \
+    -b . -o Tables -e !{params.email}
+    '''
+}
+
+process CREATE_SQLITE_DB {
+    publishDir "${params.publish_dir}"
+    input:
+        path meta_data
+        path features
+        path sequence_alignment
+        path insertions
+        path host_taxa
+        path software_info
+        path fasta_sequences
+    output:
+        path "${params.db_name}.db"
+    shell:
+    '''
+    python !{scripts_dir}/CreateSqliteDB.py -m !{meta_data} \
+    -rf !{features} -p !{sequence_alignment} \
+    -i !{insertions} -ht !{host_taxa} \
+    -s !{software_info} -fa !{fasta_sequences} \
+    -g !{projectDir}/generic/rabv/Tables/gene_info.csv \
+    -mc !{projectDir}/assets/m49_country.csv \
+    -mir !{projectDir}/assets/m49_intermediate_region.csv \
+    -mr !{projectDir}/assets/m49_region.csv \
+    -msr !{projectDir}/assets/m49_sub_region.csv \
+    -d !{params.db_name} -b . -o .
+    '''
+}
+
 workflow {
 
     // check some params are in right form
     // params.is_segmented should be either Y or N
+    TEST_DEPENDENCIES()
     if( !(params.is_segmented in ['Y','N']) ){
         error("ERROR: params.is_segmented should be either Y or N")
     }
@@ -236,6 +312,26 @@ workflow {
                         FILTER_AND_EXTRACT.out.ref_seqs_out,
                         BLAST_ALIGNMENT.out.master_seq_dir)
     PAD_ALIGNMENT(NEXTALIGN_ALIGNMENT.out)
+    
+    CALC_ALIGNMENT_CORD(PAD_ALIGNMENT.out.merged_msa, 
+                        DOWNLOAD_GFF.out, 
+                        BLAST_ALIGNMENT.out.query_uniq_tophits)
+                        
+    SOFTWARE_VERSION()
+    
+    GENERATE_TABLES(data, 
+                    BLAST_ALIGNMENT.out.query_uniq_tophits, 
+                    PAD_ALIGNMENT.out.merged_msa, 
+                    NEXTALIGN_ALIGNMENT.out)
+                    
+    CREATE_SQLITE_DB(data, 
+                     CALC_ALIGNMENT_CORD.out.features, 
+                     GENERATE_TABLES.out.sequence_alignment, 
+                     GENERATE_TABLES.out.insertions, 
+                     GENERATE_TABLES.out.host_taxa, 
+                     SOFTWARE_VERSION.out.software_info, 
+                     GENBANK_PARSER.out.sequences_out
+                     )
 }
 
 

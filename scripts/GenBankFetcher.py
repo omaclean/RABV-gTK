@@ -1,6 +1,5 @@
 import os
 import csv
-from turtle import pd
 import requests
 import time
 from time import sleep
@@ -93,7 +92,7 @@ class GenBankFetcher:
 		# usa un batch interno distinto sólo para efetch
 		batch_n = self.efetch_batch_size
 		if self.test_run:
-			ids=ids[:20]
+			ids=ids[:50]
 			# read as tsv self.ref_list add to ids, refs are first column
 			ref_list = []
 			with open(self.ref_list, 'r') as f:
