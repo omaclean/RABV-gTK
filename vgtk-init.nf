@@ -169,13 +169,12 @@ process BLAST_ALIGNMENT{
             python "!{scripts_dir}/BlastAlignment.py" -f "!{params.ref_list}" -q !{query_seqs} -r !{ref_seqs} \
              -b . -t . -m !{params.master_acc} -g !{gb_matrix}
         fi
-        ls ref_seqs | grep *
+        ls master_seq | grep "fasta"
     '''
 }
 //workdir files:
 //DB                       grouped_fasta  merged_fasta  query_tophits.tsv       ref_seq.fa  sorted_all
 //gB_matrix_validated.tsv  master_seq     query_seq.fa  query_uniq_tophits.tsv  ref_seqs    sorted_fasta
-
 
 
 //python "${scripts_dir}/NextalignAlignment.py" -m $master_acc #-gff "tmp/Gff/NC_001542.gff3"
@@ -196,6 +195,20 @@ process NEXTALIGN_ALIGNMENT{
     '''
 }
 
+
+//"${scripts_dir}/PadAlignment-1.py" -r "/home3/sk312p/task_dir/projects/VGTK/dev_version-jun-09/TING/alUnc509RefseqsMafftHandModified.fa
+process PAD_ALIGNMENT{
+    publishDir "${params.publish_dir}"
+    input:
+        path nextalign_dir 
+    output:
+        path "*.fasta"
+    shell:
+    '''
+        python !{scripts_dir}/PadAlignment.py  -r !{nextalign_dir}/reference_aln/!{params.master_acc}/!{params.master_acc}.aligned.fasta \
+        -o . -d . -i !{nextalign_dir}/query_aln --keep_intermediate_files 
+    '''
+}
 workflow {
 
     // check some params are in right form
@@ -222,7 +235,13 @@ workflow {
                         BLAST_ALIGNMENT.out.ref_seqs_dir,
                         FILTER_AND_EXTRACT.out.ref_seqs_out,
                         BLAST_ALIGNMENT.out.master_seq_dir)
+    PAD_ALIGNMENT(NEXTALIGN_ALIGNMENT.out)
 }
 
 
 // if you wanted it to do an update run, would have to swap "."s for all the directories for a pre-made one
+
+// notes, the python scripts arguments change a lot -d vs -b vs -o etc
+// there's too much directory structure, I'd really strip that all out. 
+// It could be base=tmp then every function has a subdir in tmp to keep things clear.
+// e.g. /home3/oml4h/RABV-gTK/work/0c/a315f52e862c596f61daec139b2cea/Nextalign/reference_aln/NC_001542/
