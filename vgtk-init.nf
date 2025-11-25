@@ -1,6 +1,16 @@
 
 params.test=0
 
+params.tax_id="11292"
+params.db_name="rabv-jul0425"
+params.master_acc="NC_001542"
+params.is_segmented="N"
+params.extra_info_fill=false
+params.publish_dir="results"
+params.email="your_email@example.com"
+params.ref_list="${projectDir}/generic/rabv/ref_list.txt"
+scripts_dir="${projectDir}/scripts"
+params.bulk_fillup_table="${projectDir}/generic/rabv/bulk_fillup_table.tsv"
 
 
 // 1. List your script's explicitly defined parameters (keep this in sync!)
@@ -293,19 +303,24 @@ workflow {
         error("ERROR: params.is_segmented should be either Y or N")
     }
     FETCH_GENBANK(params.tax_id)
+
     DOWNLOAD_GFF(params.master_acc)
+
     GENBANK_PARSER(params.ref_list, FETCH_GENBANK.out.gen_bank_XML)
+
     if(params.extra_info_fill){
         data=ADD_MISSING_DATA(GENBANK_PARSER.out.gb_matrix)
     }else{
         data=GENBANK_PARSER.out.gb_matrix
     }
+
     FILTER_AND_EXTRACT(data, 
                         GENBANK_PARSER.out.sequences_out)
 
     BLAST_ALIGNMENT(FILTER_AND_EXTRACT.out.query_seqs_out,
                     FILTER_AND_EXTRACT.out.ref_seqs_out,
                     data)
+
     NEXTALIGN_ALIGNMENT(data,
                         BLAST_ALIGNMENT.out.grouped_fasta,
                         BLAST_ALIGNMENT.out.ref_seqs_dir,
