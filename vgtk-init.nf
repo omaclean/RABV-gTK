@@ -1,18 +1,11 @@
 
-params.test=0
+//params defined in nextflow.config override with --params..
 
-params.tax_id="11292"
-params.db_name="rabv-jul0425"
-params.master_acc="NC_001542"
-params.is_segmented="N"
-params.extra_info_fill=false
-params.publish_dir="results"
-params.email="your_email@example.com"
-params.ref_list="${projectDir}/generic/rabv/ref_list.txt"
-scripts_dir="${projectDir}/scripts"
-params.bulk_fillup_table="${projectDir}/generic/rabv/bulk_fillup_table.tsv"
+// profiles=conda,condaMamba,test,setup_rabv_full
+//use conda if not running in conda env alraedy,
+// use condaMamba for mamba if installed (check with mamba --version)
 
-
+scripts_dir     = "${projectDir}/scripts"
 // 1. List your script's explicitly defined parameters (keep this in sync!)
 def scriptDefinedParams = [
     'tax_id', 'db_name', 'master_acc', 'is_segmented', 'extra_info_fill', 'test',
@@ -73,7 +66,7 @@ process TEST_DEPENDENCIES{
 process FETCH_GENBANK{
     publishDir "${params.publish_dir}"
     input:
-        val (TAX_ID)
+        val TAX_ID
     output:
         path 'GenBank-XML', type: 'dir', emit: gen_bank_XML
     shell:
