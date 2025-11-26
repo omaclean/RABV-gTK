@@ -96,8 +96,6 @@ process DOWNLOAD_GFF{
     '''
 }
 
-//python GenBankParser.py
-//python "${scripts_dir}/GenBankParser.py" -r "generic/rabv/ref_list.txt"
 
 process GENBANK_PARSER{
     publishDir "${params.publish_dir}"
@@ -112,9 +110,9 @@ process GENBANK_PARSER{
         python !{scripts_dir}/GenBankParser.py -r !{ref_list_path} -d !{gen_bank_XML} -o . -b .
         python !{scripts_dir}/ValidateMatrix.py -o . -a !{projectDir}/assets -b . \
         -g gB_matrix_raw.tsv \
-        -m !{projectDir}/generic/rabv/host_mapping.tsv -n !{projectDir}/generic/rabv/country_mapping.tsv  \
+        -m !{projectDir}/assets/host_mapping.tsv -n !{projectDir}/assets/country_mapping.tsv  \
         -c !{projectDir}/assets/m49_country.csv
-        # I don't like hardcoding these bits in if this it to generalise beyond rabv
+        
     '''
 }
 process ADD_MISSING_DATA{
@@ -284,6 +282,7 @@ process CREATE_SQLITE_DB {
     -mr !{projectDir}/assets/m49_region.csv \
     -msr !{projectDir}/assets/m49_sub_region.csv \
     -d !{params.db_name} -b . -o .
+    # need to make gene info come from gff file rather than hardcoded rabv one
     '''
 }
 
@@ -348,4 +347,3 @@ workflow {
 // notes, the python scripts arguments change a lot -d vs -b vs -o etc
 // there's too much directory structure, I'd really strip that all out. 
 // It could be base=tmp then every function has a subdir in tmp to keep things clear.
-// e.g. /home3/oml4h/RABV-gTK/work/0c/a315f52e862c596f61daec139b2cea/Nextalign/reference_aln/NC_001542/
